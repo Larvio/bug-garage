@@ -242,7 +242,7 @@ void loop() {
     #if INCLUDE_SD
       logfile.println(F("Failed to read from DHT sensor!"));
     #endif
-    return;
+    //return;
   }
   
   #if ECHO_TO_SERIAL
