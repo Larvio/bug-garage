@@ -1,9 +1,12 @@
 #include "Adafruit_FONA.h"
 #include <SoftwareSerial.h>
+
+#define DELAY_SEC 50
+
 /* FONA PINS */
-#define FONA_TX 14
-#define FONA_RX 15
-#define FONA_RST 6
+#define FONA_RX A15
+#define FONA_TX A14
+#define FONA_RST 10
 
 /*TING APN INFORMATION*/
 #define APN "wholesale"

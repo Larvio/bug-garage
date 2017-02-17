@@ -180,16 +180,8 @@ void loop() {
     Serial.println(F("Starting loop..."));
   #endif
   
-  DateTime now;
-  #if ECHO_TO_SERIAL
-    Serial.println(F("Time successfully declared..."));
-  #endif
-
-  #if ECHO_TO_SERIAL
-    Serial.println(F("Delayed for time between readings..."));
-  #endif
-  
   #if INCLUDE_SD
+    DateTime now;    
     // delay for the amount of time we want between readings
     delay((LOG_INTERVAL -1) - (millis() % LOG_INTERVAL));digitalWrite(greenLEDpin, HIGH);
   
@@ -390,7 +382,7 @@ void loop() {
   
     // Now we write data to disk! Don't sync too often - requires 2048 bytes of I/O to SD card
     // which uses a bunch of power and takes time
-    if ((m - syncTime+5) < SYNC_INTERVAL) return;
+    //if ((m - syncTime+5) < SYNC_INTERVAL) return;
     syncTime = m;
     Serial.println("writing to SD card");
   
@@ -409,6 +401,7 @@ void loop() {
   }
   
   sendData(fTemp_4, h_4, fTemp_5, h_5, vbat);
+  delay_sec(DELAY_SEC);
 }
 
 /*=====================================END LOOP=======================================*/
@@ -518,5 +511,17 @@ void sendData(float Gf, float Gh, float BCf, float BCh, uint16_t vbat){
     Serial.write(fona.read());
   }  
   }
+
+void delay_sec(int seconds){
+  int sec=seconds;
+  while (sec>0){
+    delay(1000);
+    sec--;
+    #if ECHO_TO_SERIAL
+      Serial.print(sec);
+      Serial.print(" ");
+    #endif 
+  }
+}
 
   
