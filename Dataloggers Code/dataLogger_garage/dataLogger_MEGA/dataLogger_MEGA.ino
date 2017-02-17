@@ -2,49 +2,62 @@
 #include <RTClib.h> //Needed for RTC
 #include <SD.h> //Needed for SD Card
 #include <DHT.h> //Needed for Sensors
+#include "config.h" //network information, etc
 
+//***** DEBUG TOOLS *********
+#define ECHO_TO_SERIAL 1 // echo data to serial port
+#define WAIT_TO_START 0 // Wait for serial input in setup()
+
+//***** SENSOR PINS ***********
 #define DHTPIN_4 4     // what digital pin the sensor is connected to (duplicate as necessary)
 #define DHTPIN_5 5     // what digital pin the sensor is connected to (duplicate as necessary)
 #define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
 DHT dht_4(DHTPIN_4, DHTTYPE);
 DHT dht_5(DHTPIN_5, DHTTYPE);
 
-int relayPin1 = 6;                 // IN1 connected to digital pin 7
-int relayPin2 = 7;                 // IN2 connected to digital pin 8
-int relayPin3 = 8;
-int relayPin4 = 9;
-//int relayPin5 = 11;
-//int relayPin6 = 12;
-//int relayPin7 = 13;
+//******* RELAY VARIABLES *******
+int relayPin1 = 31; // AC1
+int relayPin2 = 33; // AC1
+int relayPin3 = 35; // DEAD
+int relayPin4 = 37; // Humidifiers power strip
+int relayPin5 = 39; // Heat2
+int relayPin6 = 41; // Heat2
+int relayPin7 = 43; 
+int relayPin8 = 45;
 
 boolean exhaustOn = false;
 boolean humidifierOn=false;
 boolean heatOn = false;
 
-#define LOG_INTERVAL 5000 //time between measurements in millis
-//#define LOG_INTERVAL 20000 //time between measurements in millis
+//********************FONA GLOBAL DECLARATIONS *******************
 
+SoftwareSerial fonaSS = SoftwareSerial(FONA_TX, FONA_RX);
+SoftwareSerial *fonaSerial = &fonaSS;
+
+// Use this for FONA 800 and 808s
+Adafruit_FONA fona = Adafruit_FONA(FONA_RST);
+uint16_t vbat;
+
+//******************SD CARD VARIABLES ****************************
 // how many milliseconds before writing the logged data permanently to disk
 // set it to the LOG_INTERVAL to write each time (safest)
 // set it to 10*LOG_INTERVAL to write all data every 10 datareads, you could lose up to 
 // the last 10 reads if power is lost but it uses less power and is much faster!
 #define SYNC_INTERVAL 60000 // mills between calls to flush() - to write data to the card
-//#define SYNC_INTERVAL 300000 // mills between calls to flush() - to write data to the card
+#define LOG_INTERVAL 5000 //time between measurements in millis
 uint32_t syncTime = 0; // time of last sync()
 
-//not sure if i need these
-#define ECHO_TO_SERIAL 1 // echo data to serial port
-#define WAIT_TO_START 0 // Wait for serial input in setup()
-
-// the digital pins that connect to the LEDs
+// the digital pins that connect to the LEDs on SD card shield
 #define greenLEDpin 2
 #define redLEDpin 3
 
 RTC_DS1307 RTC; // define the Real Time Clock object
 
-// for the data logging shield, we use digital pin 10 for the SD cs line
-const int chipSelect = 10;
+// for the data logging shield, we use digital pin for the SD cs line
+const int chipSelect = 53; //For Mega, MOSI=51, MISO=50, SCK=52, SS=53
+File logfile; // the logging file
 
+//*********** IMPORTANT THRESHOLDS FOR TEMP AND HUMIDITY**********
 #define coolingTempHighThreshold 95 //95
 #define coolingTempLowThreshold 90 //85
 
@@ -53,32 +66,6 @@ const int chipSelect = 10;
 
 #define humidityHighThreshold 80
 #define humidityLowThreshold 75
-// the logging file
-File logfile;
-
-void error(char *str)
-{
-  #if ECHO_TO_SERIAL
-    Serial.print("error: ");
-    Serial.println(str);
-#endif
-
-  while(1){
-    // red LED indicates error
-  digitalWrite(redLEDpin, HIGH);
-  delay(100);
-  digitalWrite(redLEDpin, LOW);
-  delay(100);
-  digitalWrite(redLEDpin, HIGH);
-  delay(100);
-  digitalWrite(redLEDpin, LOW);
-  delay(100);
-  digitalWrite(redLEDpin, HIGH);
-  delay(100);
-  digitalWrite(redLEDpin, LOW);
-  delay(LOG_INTERVAL-500);
-  }
-}
 
 void setup() {
   Serial.begin(9600);
@@ -91,16 +78,23 @@ void setup() {
   pinMode(relayPin1, OUTPUT);      // sets the digital pin as output
   pinMode(relayPin2, OUTPUT);      // sets the digital pin as output
   pinMode(relayPin3, OUTPUT);      // sets the digital pin as output
-  pinMode(relayPin4, OUTPUT);      // sets the digital pin as output
+  pinMode(relayPin4, OUTPUT);      // sets the digital pin as output  
+  pinMode(relayPin5, OUTPUT);      // sets the digital pin as output
+  pinMode(relayPin6, OUTPUT);      // sets the digital pin as output
+  pinMode(relayPin7, OUTPUT);      // sets the digital pin as output
+  pinMode(relayPin8, OUTPUT);      // sets the digital pin as output
 
   digitalWrite(relayPin1, HIGH);        // Prevents relays from starting up engaged
   digitalWrite(relayPin2, HIGH);        // Prevents relays from starting up engaged
   digitalWrite(relayPin3, HIGH);        // Prevents relays from starting up engaged
   digitalWrite(relayPin4, HIGH);        // Prevents relays from starting up engaged
-//  pinMode(relayPin5, OUTPUT);      // sets the digital pin as output
-//  pinMode(relayPin6, OUTPUT);      // sets the digital pin as output
-//  pinMode(relayPin7, OUTPUT);      // sets the digital pin as output
+  digitalWrite(relayPin5, HIGH);        // Prevents relays from starting up engaged
+  digitalWrite(relayPin6, HIGH);        // Prevents relays from starting up engaged
+  digitalWrite(relayPin7, HIGH);        // Prevents relays from starting up engaged
+  digitalWrite(relayPin8, HIGH);        // Prevents relays from starting up engaged
 
+  configureFONA();
+  
   #if WAIT_TO_START
     #if ECHO_TO_SERIAL
       Serial.println("Type any character to start");
@@ -120,7 +114,7 @@ void setup() {
     Serial.println("Initializing SD card...");
   #endif
   // make sure that the default chip select pin is set to output, even if you don't use it:
-  pinMode(10, OUTPUT);
+  pinMode(chipSelect, OUTPUT);
 
   // see if the card is present and can be initialized:
   if (!SD.begin(chipSelect)) {
@@ -243,10 +237,12 @@ void loop() {
 
  // Control section
     if(heatOn==false && fTemp_5<heatingTempLowThreshold){
-     digitalWrite(relayPin3, LOW);   // energizes the relay and lights the LED
+     digitalWrite(relayPin5, LOW);   // energizes the relay and lights the LED
+     digitalWrite(relayPin6, LOW);   // energizes the relay and lights the LED
      heatOn=true;
   } else if(heatOn==true && fTemp_5>heatingTempHighThreshold){
-     digitalWrite(relayPin3, HIGH);   // de-energizes the relay and turns off the LED
+     digitalWrite(relayPin5, HIGH);   // de-energizes the relay and turns off the LED
+     digitalWrite(relayPin6, HIGH);   // de-energizes the relay and turns off the LED
      heatOn=false;
   }
 
@@ -259,19 +255,16 @@ void loop() {
   }
 
     if(exhaustOn==false && fTemp_5>coolingTempHighThreshold){
-//     digitalWrite(relayPin5, LOW);   // energizes the relay and lights the LED
      digitalWrite(relayPin1, LOW);   // energizes the relay and lights the LED
      digitalWrite(relayPin2, LOW);   // energizes the relay and lights the LED
      exhaustOn=true;
   } else if(exhaustOn==true && fTemp_5<coolingTempLowThreshold){
-//    digitalWrite(relayPin5, HIGH);   // de-energizes the relay and turns off the LED
     digitalWrite(relayPin1, HIGH);   // de-energizes the relay and turns off the LED
     digitalWrite(relayPin2, HIGH);   // de-energizes the relay and turns off the LED
      exhaustOn=false;
   }
 
-  
-  // log time
+  /* --------- LOG ALL THE THINGS -------------------- */
   logfile.print(now.unixtime()); // seconds since 1/1/1970
   logfile.print(",");
   logfile.print('"');
@@ -364,22 +357,16 @@ void loop() {
     Serial.print(digitalRead(relayPin3));
     Serial.print(", "); 
     Serial.print(digitalRead(relayPin4));
-//    Serial.print(", "); 
-//    Serial.print(digitalRead(relayPin5));
-//    Serial.print(", "); 
-//    Serial.print(digitalRead(relayPin6));
-//    Serial.print(", "); 
-//    Serial.print(digitalRead(relayPin7));  
+    Serial.print(", "); 
+    Serial.print(digitalRead(relayPin5));
+    Serial.print(", "); 
+    Serial.print(digitalRead(relayPin6));
+    Serial.print(", "); 
+    Serial.print(digitalRead(relayPin7));  
     Serial.println();
   #endif //ECHO_TO_SERIAL
 
   digitalWrite(greenLEDpin, LOW);
-
-//  Serial.print((m - syncTime+5));
-//  Serial.print("\t");
-//  Serial.print(SYNC_INTERVAL);
-//  Serial.print("\t");
-//  Serial.println((m - syncTime+5) < SYNC_INTERVAL);
 
   // Now we write data to disk! Don't sync too often - requires 2048 bytes of I/O to SD card
   // which uses a bunch of power and takes time
@@ -393,37 +380,120 @@ void loop() {
   delay(100);
   digitalWrite(redLEDpin, LOW);
 
-//relayTest();
+  /******FONA ****/  
+  if (! fona.getBattPercent(&vbat)) {
+    Serial.println(F("Failed to read Batt"));
+  } else {
+    Serial.print(F("VPct = ")); Serial.print(vbat); Serial.println(F("%"));
+  }
+  
+  sendData(fTemp_4, h_4, fTemp_5, h_5, vbat);
 }
 
-void relayTest() {
-  // delay for the amount of time we want between readings
-//  delay(2000);
-//  digitalWrite(relayPin7, HIGH);
-  digitalWrite(relayPin1, LOW);   // energizes the relay and lights the LED
-  digitalWrite(relayPin2, LOW);   // energizes the relay and lights the LED
 
-  delay(5000);
-  digitalWrite(relayPin1, HIGH); 
-  digitalWrite(relayPin2, HIGH);   // energizes the relay and lights the LED
+/* THROW ERROR FUNCTION FOR SD CARD*/
+void error(char *str)
+{
+  #if ECHO_TO_SERIAL
+    Serial.print("error: ");
+    Serial.println(str);
+#endif
 
-  delay(5000);
-  digitalWrite(relayPin2, HIGH);
-  digitalWrite(relayPin3, LOW);   // energizes the relay and lights the LED
-    delay(5000);
-  digitalWrite(relayPin3, HIGH); 
-  digitalWrite(relayPin4, LOW);   // energizes the relay and lights the LED
-
-      delay(5000);
-  digitalWrite(relayPin4, HIGH); 
-//  digitalWrite(relayPin5, LOW);   // energizes the relay and lights the LED
-
-//      delay(2000);
-//  digitalWrite(relayPin5, HIGH); 
-//  digitalWrite(relayPin6, LOW);   // energizes the relay and lights the LED
-
-//      delay(2000);
-//  digitalWrite(relayPin6, HIGH); 
-//  digitalWrite(relayPin7, LOW);   // energizes the relay and lights the LED
-
+  while(1){
+    // red LED indicates error
+  digitalWrite(redLEDpin, HIGH);
+  delay(100);
+  digitalWrite(redLEDpin, LOW);
+  delay(100);
+  digitalWrite(redLEDpin, HIGH);
+  delay(100);
+  digitalWrite(redLEDpin, LOW);
+  delay(100);
+  digitalWrite(redLEDpin, HIGH);
+  delay(100);
+  digitalWrite(redLEDpin, LOW);
+  delay(LOG_INTERVAL-500);
   }
+}
+
+void configureFONA(){
+  Serial.println(F("Initializing....(May take 3 seconds)"));
+  fonaSerial->begin(4800);
+  if (! fona.begin(*fonaSerial)) {
+    Serial.println(F("Couldn't find FONA"));
+  }
+  Serial.println(F("FONA is OK"));
+  
+  // configure a GPRS APN, username, and password.
+  fona.setGPRSNetworkSettings(F(APN), F(USER), F(PASS));
+}
+
+void enableGPRS(){
+  int i=0;
+  while (!fona.enableGPRS(true) && i<10){
+    Serial.println(F("Failed to turn on"));
+    delay(1500);
+    Serial.println(i++);
+    }
+}
+
+//void sendData(float fTemp_4, float h_4, float fTemp_5, float h_5, uint16_t vbat){
+void sendData(float Gf, float Gh, float BCf, float BCh, uint16_t vbat){
+  enableGPRS();
+  // Post data to website
+  Serial.println(F("Posting data..."));
+  uint16_t statuscode;
+  int16_t length;
+  char url[107]="things.ubidots.com/api/v1.6/collections/values/?token="TOKEN;
+  char data[300];
+  char val1[10], val2[10], val3[10], val4[10], val5[10];
+  char val6[5];
+  bool val7, val8, val9;
+  dtostrf(BCf,6, 2, val1);
+  dtostrf(BCh,6, 2, val2);
+  dtostrf(Gf,6, 2, val3);
+  dtostrf(Gh,6, 2, val4);
+  dtostrf(vbat,3, 0, val5);
+  sprintf(data,"[{\"variable\": \"%s\", \"value\":%s}, {\"variable\": \"%s\", \"value\":%s}, {\"variable\": \"%s\", \"value\":%s}, {\"variable\": \"%s\", \"value\":%s},{\"variable\": \"%s\", \"value\":%s}]", ID1, val1, ID2, val2, ID3, val3, ID4, val4, ID5, val5);
+
+  //flushSerial();
+  Serial.print(F("http://"));
+  Serial.println(url);
+  Serial.println(data);
+  Serial.println(F("****SENDING****"));
+  if (!fona.HTTP_POST_start(url, F("application/json"), (uint8_t *) data, strlen(data), &statuscode, (uint16_t *)&length)) {
+    Serial.println("Failed!");
+  }
+  while (length > 0) {
+    while (fona.available()) {
+      char c = fona.read();
+
+#if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
+      loop_until_bit_is_set(UCSR0A, UDRE0); /* Wait until data register empty. */
+      UDR0 = c;
+#else
+      Serial.write(c);
+#endif
+
+      length--;
+      if (! length) break;
+    }
+  }
+  Serial.println(F("\n****"));
+  fona.HTTP_POST_end();
+  int i=0;
+  while (!fona.enableGPRS(false) && i<10){
+    Serial.println(F("Failed to turn off"));
+    delay(1500);
+    Serial.println(i++);
+    }
+  Serial.println(F("GPRS STATUS:"));
+  fona.GPRSstate();
+  // flush input
+  //flushSerial();
+  while (fona.available()) {
+    Serial.write(fona.read());
+  }  
+  }
+
+  

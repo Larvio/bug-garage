@@ -19,7 +19,8 @@
 #define TEMPCEILING 80
 #define TEMPFLOOR   70
 //#define DELAY_MS 60000
-#define SERIAL_BAUD 9600
+#define SERIAL_BAUD 115200
+#define WATCHDOGTIME 20000
 
 //********DATA TRANSMISSION KEYS***********************************************************
 #define NETWORK "theham"
@@ -29,12 +30,15 @@
 #define ID1 "58555b4f7625425970ee3a78" //bin temperature
 #define ID2 "58555b577625425972dec78a" //ambient temperature
 #define ID3 "58555b5e762542596efaa42d" //ambient humidity
+#define ID4 "" // WIFI SIGNAL
 
 //********GLOBAL VARIABLES******************************************************************
 double airHumidity;
 double airTemp;
 double binTemp;
 boolean heatOn = false;
+int countdown_ms = 0;
+int minutes = 0;
 
 //********GLOBAL OBJECTS*******************************************************************
 
@@ -54,6 +58,7 @@ WiFiClient client; // initialize the Ethernet client library (port 80 is default
 
 void setup() {
   Serial.begin(SERIAL_BAUD);
+  Serial.println("************SETUP START**********");
  
   //DIGITAL PINS
   pinMode(RELAY1, OUTPUT);      // sets the digital pin as output
@@ -67,7 +72,7 @@ void setup() {
   airSensor.begin();
   WiFi.setPins(8,7,4,2); //Configure pins for Adafruit ATWINC1500 Feather
   Serial.println("Enabling the watchdog");
-  int countdown_ms= Watchdog.enable(120000);  
+  countdown_ms = Watchdog.enable(WATCHDOGTIME);  
   Serial.println("Enabled the watchdog with max countdown of ");
   Serial.println(countdown_ms, DEC);
   Serial.println(" milliseconds!");
@@ -75,6 +80,9 @@ void setup() {
 }
 
 void loop() {
+  Serial.println("************LOOP START**********");
+  wifiConnect();
+  
   //read sensors
   binTemp = readtemp();
   airHumidity = airSensor.readHumidity();
@@ -83,22 +91,32 @@ void loop() {
   Serial.print(" air ");  Serial.print(airTemp);  Serial.print("F ");  Serial.println(airHumidity);
 
   //send data
-  wifiConnect();
   Serial.println("Sending using Ubidots");
   sendUbidots();
-  Watchdog.reset();
   
   //control
   if (airTemp<TEMPFLOOR)        relayControl_NC(1, true);
   else if (airTemp>TEMPCEILING) relayControl_NC(1, false);
 
   //delay interval
-  int i=0;
-  if(i<60){
+  int i=20; //seconds of delay    
+  Serial.println("-------WATCHDOG RESET LOOP------");
+  while(i>0){
     Watchdog.reset();
-    delay(1000);  // Wait seconds between transmits, could also 'sleep' here!
-    i++;
+    Serial.print(i); Serial.print(" ");
+    delay(950);
+    i--;
     }
+  i=16;
+  Serial.print("\nWatchdog resetting in ");
+  while(i>0){
+    delay(1000);
+    Serial.print(i);
+    Serial.print(" ");
+    i--;
+    }
+  
+  Serial.println("NO RESET");  
 }
 
 //------FUNCTION: READ TEMPERATURE--------------------
@@ -151,13 +169,21 @@ void wifiConnect(){
 }
 
 //-------FUNCTION: SEND DATA USING UBIDOTS LIBRARY--------
-void sendUbidots(){
+bool sendUbidots(){
+  bool stat=false;
   Serial.println("Building data structure");
   Ubidots client(TOKEN);
   client.add(ID1,binTemp);
   client.add(ID2,airTemp);
   client.add(ID3,airHumidity);
-  client.sendAll();
+  Watchdog.reset();
+  
+  Serial.print("sendAll status: ");
+  Serial.println(stat);
+  stat=client.sendAll();
+  Serial.print("sendAll status: ");
+  Serial.println(stat);
+  return stat;
 }
 
 void Blink(byte PIN, byte DELAY_MS, byte loops){

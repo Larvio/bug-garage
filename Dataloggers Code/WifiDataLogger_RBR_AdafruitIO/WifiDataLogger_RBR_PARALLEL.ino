@@ -3,9 +3,10 @@
 #include <OneWire.h> //temperature sensor
 #include <DallasTemperature.h> //temperature sensor  
 #include <DHT.h> //Needed for Sensors
-#include <WiFi101.h>
-#include <UbidotsArduino.h>
-#include <Adafruit_SleepyDog.h>
+#include <WiFi101.h> //needed for wifi
+#include <UbidotsArduino.h> //needed for data client
+#include "config.h" //needed for... adafruit IO
+#include <Adafruit_SleepyDog.h> //needed for reset-on-hang
 
 #define RELAY1 A0
 #define RELAY2 A1
@@ -22,13 +23,15 @@
 #define SERIAL_BAUD 9600
 
 //********DATA TRANSMISSION KEYS***********************************************************
-#define NETWORK "theham"
-#define PASSWORD "EGBDF901"
+#define NETWORK "Alderaan"
+#define PASSWORD "deathstar"
 #define UBIDOTSURL "things.ubidots.com/api/v1.6/collections/values/?token=3hB2gtSrMKDaZKyPkRt6Egqh7Lft8c"
 #define TOKEN "3hB2gtSrMKDaZKyPkRt6Egqh7Lft8c"
 #define ID1 "58555b4f7625425970ee3a78" //bin temperature
 #define ID2 "58555b577625425972dec78a" //ambient temperature
 #define ID3 "58555b5e762542596efaa42d" //ambient humidity
+#define ADAFRUITKEY "df1bbbee6b8d461b9f7ae7479840c045"
+#define STATUSKEY "wifi-status"
 
 //********GLOBAL VARIABLES******************************************************************
 double airHumidity;
@@ -42,7 +45,6 @@ DHT airSensor(AIRDHT, DHTTYPE);
 OneWire oneWire(ONE_WIRE_BUS); //setup a oneWire node to communicate with 1 or more devices
 DallasTemperature multisensors(&oneWire); //setup temperature sensors (respond in celcius)
 
-
 char ssid[] = NETWORK; //  your network SSID (name)
 char pass[] = PASSWORD;    // your network password (use for WPA, or use as key for WEP)
 int keyIndex = 0;            // your network key Index number (needed only for WEP)
@@ -51,10 +53,11 @@ int status = WL_IDLE_STATUS;
 char server[] = UBIDOTSURL;
 WiFiClient client; // initialize the Ethernet client library (port 80 is default for HTTP):
 
+/* PARALLEL INFO */
+AdafruitIO_Feed *wifistatus = io.feed("wifi-status");
 
 void setup() {
   Serial.begin(SERIAL_BAUD);
- 
   //DIGITAL PINS
   pinMode(RELAY1, OUTPUT);      // sets the digital pin as output
   pinMode(RELAY2, OUTPUT);      // sets the digital pin as output
@@ -63,18 +66,40 @@ void setup() {
   pinMode(LED, OUTPUT); //Initialize LED
 
   //INITIALIZERS
-  multisensors.begin(); // Initialize temperature sensor
-  airSensor.begin();
-  WiFi.setPins(8,7,4,2); //Configure pins for Adafruit ATWINC1500 Feather
   Serial.println("Enabling the watchdog");
   int countdown_ms= Watchdog.enable(120000);  
   Serial.println("Enabled the watchdog with max countdown of ");
   Serial.println(countdown_ms, DEC);
   Serial.println(" milliseconds!");
   Serial.println();
+  
+  multisensors.begin(); // Initialize temperature sensor
+  airSensor.begin();
+  WiFi.setPins(8,7,4,2); //Configure pins for Adafruit ATWINC1500 Feather
+
+  /*Parallel Info*/
+  Serial.print("Connecting to Adafruit IO");
+
+  // connect to io.adafruit.com
+  io.connect();
+
+  // wait for a connection
+  while(io.status() < AIO_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+
+  // we are connected
+  Serial.println();
+  Serial.println(io.statusText());
+
 }
 
-void loop() {
+void loop() {   
+  io.run();
+  wifistatus->save(1);
+  Watchdog.reset();
+  /*
   //read sensors
   binTemp = readtemp();
   airHumidity = airSensor.readHumidity();
@@ -86,12 +111,11 @@ void loop() {
   wifiConnect();
   Serial.println("Sending using Ubidots");
   sendUbidots();
-  Watchdog.reset();
-  
+
   //control
   if (airTemp<TEMPFLOOR)        relayControl_NC(1, true);
   else if (airTemp>TEMPCEILING) relayControl_NC(1, false);
-
+*/
   //delay interval
   int i=0;
   if(i<60){
@@ -99,6 +123,9 @@ void loop() {
     delay(1000);  // Wait seconds between transmits, could also 'sleep' here!
     i++;
     }
+  
+
+  
 }
 
 //------FUNCTION: READ TEMPERATURE--------------------
