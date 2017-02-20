@@ -1,7 +1,7 @@
 #include "Adafruit_FONA.h"
 #include <SoftwareSerial.h>
 
-#define DELAY_SEC 50
+#define DELAY_SEC 20
 
 /* FONA PINS */
 #define FONA_RX A15

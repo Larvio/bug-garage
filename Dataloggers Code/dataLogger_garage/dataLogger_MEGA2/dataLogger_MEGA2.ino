@@ -3,6 +3,7 @@
 #include <SD.h> //Needed for SD Card
 #include <DHT.h> //Needed for Sensors
 #include "config.h" //network information, etc
+#include <avr/wdt.h>
 
 //***** DEBUG TOOLS *********
 #define ECHO_TO_SERIAL 1 // echo data to serial port
@@ -15,6 +16,14 @@
 #define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
 DHT dht_4(DHTPIN_4, DHTTYPE);
 DHT dht_5(DHTPIN_5, DHTTYPE);
+
+//****** GLOBAL ENV DATA *******
+float h_4     = 0;
+float fTemp_4 = 0;
+float cTemp_4 = 0;
+float h_5     = 0;
+float fTemp_5 = 0;
+float cTemp_5 = 0;
 
 //******* RELAY VARIABLES *******
 int relayPin1 = 31; // AC1
@@ -94,7 +103,10 @@ void setup() {
   digitalWrite(relayPin7, HIGH);        // Prevents relays from starting up engaged
   digitalWrite(relayPin8, HIGH);        // Prevents relays from starting up engaged
 
-  configureFONA();
+  configureFONA(); 
+  wdt_enable(WDTO_8S);
+  wdt_reset();
+  
   
   #if WAIT_TO_START
     #if ECHO_TO_SERIAL
@@ -109,6 +121,7 @@ void setup() {
   #endif
   dht_4.begin(); //initialize the sensor
   dht_5.begin();
+  envControl();
 
 #if INCLUDE_SD
   // use debugging LEDs
@@ -162,14 +175,9 @@ void setup() {
 
   logfile.println(F("Time,Time,Time,Sensor_4,Sensor_4,Sensor_4,Sensor_5,Sensor_5,Sensor_5,Relay,Relay,Relay,Relay,Relay,Relay,Relay,Relay,Relay,Relay"));
   logfile.println(F("millis,stamp,datetime,tempF,tempC,Humidity,tempF,tempC,Humidity,exhaustOn,humidifierOn,heatOn,Relay1 (AC1),Relay2 (AC2),Relay3(Heat),Relay4 (Humidifiers),Relay5 (Exhaust),Relay6,Relay7"));    
-  #if ECHO_TO_SERIAL
-    Serial.println(F("Time,Time,Time,Sensor_4,Sensor_4,Sensor_4,Sensor_5,Sensor_5,Sensor_5,Relay,Relay,Relay,Relay,Relay,Relay,Relay,Relay,Relay,Relay"));
-    Serial.println(F("millis,stamp,datetime,tempF,tempC,Humidity,tempF,tempC,Humidity,exhaustOn,humidifierOn,heatOn,Relay1 (AC1),Relay2 (AC2),Relay3(Heat),Relay4 (Humidifiers),Relay5 (Exhaust),Relay6,Relay7")); 
-  #endif //ECHO_TO_SERIAL
 #endif //INCLUDE_SD
 
 }
-
 
 
 
@@ -202,78 +210,15 @@ void loop() {
     #endif
   #endif
 
-  // Reading temperature or humidity takes about 250 milliseconds!
-  // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-  float h_4 = dht_4.readHumidity();
-  #if ECHO_TO_SERIAL
-    Serial.println(F("1"));
-  #endif
-  // Read temperature as Celsius (the default)
-  float cTemp_4 = dht_4.readTemperature();
-  #if ECHO_TO_SERIAL
-    Serial.println(F("2"));
-  #endif
-  // Read temperature as Fahrenheit (isFahrenheit = true)
-  float fTemp_4 = dht_4.readTemperature(true);
-  #if ECHO_TO_SERIAL
-    Serial.println(F("3"));
-  #endif
-  // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-  float h_5 = dht_5.readHumidity();
-  #if ECHO_TO_SERIAL
-    Serial.println(F("4"));
-  #endif
-  // Read temperature as Celsius (the default)
-  float cTemp_5 = dht_5.readTemperature();
-  #if ECHO_TO_SERIAL
-    Serial.println(F("5"));
-  #endif
-  // Read temperature as Fahrenheit (isFahrenheit = true)
-  float fTemp_5 = dht_5.readTemperature(true);
-  #if ECHO_TO_SERIAL
-    Serial.println(F("6. Done."));
-  #endif
+
+
   
-  // Check if any reads failed and exit early (to try again).
-  if ((isnan(h_4) || isnan(cTemp_4) || isnan(fTemp_4)) && (isnan(h_5) || isnan(cTemp_5) || isnan(fTemp_5))) {
-    #if ECHO_TO_SERIAL
-      Serial.println("Failed to read from DHT sensor!");
-      #endif
-    #if INCLUDE_SD
-      logfile.println("Failed to read from DHT sensor!");
-    #endif
-    
-    return;
-  }
+  //******************MAKE SURE BUGS ARE OK ***********
+  envControl(); 
+  //******** I HOPE THEY'RE HAVING FUN IN THERE ************
 
- // Control section
-    if(heatOn==false && fTemp_5<heatingTempLowThreshold){
-     digitalWrite(relayPin5, LOW);   // energizes the relay and lights the LED
-     digitalWrite(relayPin6, LOW);   // energizes the relay and lights the LED
-     heatOn=true;
-  } else if(heatOn==true && fTemp_5>heatingTempHighThreshold){
-     digitalWrite(relayPin5, HIGH);   // de-energizes the relay and turns off the LED
-     digitalWrite(relayPin6, HIGH);   // de-energizes the relay and turns off the LED
-     heatOn=false;
-  }
 
-  if(humidifierOn==false && h_5<humidityLowThreshold){
-     digitalWrite(relayPin4, LOW);   // energizes the relay and lights the LED
-     humidifierOn=true;
-  } else if(humidifierOn==true && h_5>humidityHighThreshold){
-    digitalWrite(relayPin4, HIGH);   // de-energizes the relay and turns off the LED
-     humidifierOn=false;
-  }
 
-    if(exhaustOn==false && fTemp_5>coolingTempHighThreshold){
-     digitalWrite(relayPin1, LOW);   // energizes the relay and lights the LED
-     digitalWrite(relayPin2, LOW);   // energizes the relay and lights the LED
-     exhaustOn=true;
-  } else if(exhaustOn==true && fTemp_5<coolingTempLowThreshold){
-    digitalWrite(relayPin1, HIGH);   // de-energizes the relay and turns off the LED
-    digitalWrite(relayPin2, HIGH);   // de-energizes the relay and turns off the LED
-     exhaustOn=false;
-  }
   
   #if INCLUDE_SD
     /* --------- LOG ALL THE THINGS -------------------- */
@@ -401,10 +346,86 @@ void loop() {
   }
   
   sendData(fTemp_4, h_4, fTemp_5, h_5, vbat);
+  wdt_reset();
   delay_sec(DELAY_SEC);
 }
 
 /*=====================================END LOOP=======================================*/
+
+void envControl(){
+  // Reading temperature or humidity takes about 250 milliseconds!
+  // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+  h_4 = dht_4.readHumidity();
+  #if ECHO_TO_SERIAL
+    Serial.print(F("h_4 (Gh) = "));
+    Serial.println(h_4);
+  #endif
+  // Read temperature as Celsius (the default)
+  cTemp_4 = dht_4.readTemperature();
+  // Read temperature as Fahrenheit (isFahrenheit = true)
+  fTemp_4 = dht_4.readTemperature(true);
+  #if ECHO_TO_SERIAL
+    Serial.print(F("fTemp_4 (Gt) = "));
+    Serial.println(fTemp_4);
+  #endif
+  // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+  h_5 = dht_5.readHumidity();
+  #if ECHO_TO_SERIAL
+    Serial.print(F("h_5 (BCh) = "));
+    Serial.println(h_5);
+  #endif
+  // Read temperature as Celsius (the default)
+  cTemp_5 = dht_5.readTemperature();
+  // Read temperature as Fahrenheit (isFahrenheit = true)
+  fTemp_5 = dht_5.readTemperature(true);
+  #if ECHO_TO_SERIAL
+    Serial.print(F("fTemp_5 (BCt) = "));
+    Serial.println(fTemp_5);
+  #endif
+  
+  // Check if any reads failed and exit early (to try again).
+  if ((isnan(h_4) || isnan(cTemp_4) || isnan(fTemp_4)) && (isnan(h_5) || isnan(cTemp_5) || isnan(fTemp_5))) {
+    #if ECHO_TO_SERIAL
+      Serial.println("Failed to read from DHT sensor!");
+      #endif
+    #if INCLUDE_SD
+      logfile.println("Failed to read from DHT sensor!");
+    #endif
+    
+    return;
+  }
+
+ // Control section
+    if(heatOn==false && fTemp_5<heatingTempLowThreshold){
+     digitalWrite(relayPin5, LOW);   // energizes the relay and lights the LED
+     digitalWrite(relayPin6, LOW);   // energizes the relay and lights the LED
+     heatOn=true;
+  } else if(heatOn==true && fTemp_5>heatingTempHighThreshold){
+     digitalWrite(relayPin5, HIGH);   // de-energizes the relay and turns off the LED
+     digitalWrite(relayPin6, HIGH);   // de-energizes the relay and turns off the LED
+     heatOn=false;
+  }
+
+  if(humidifierOn==false && h_5<humidityLowThreshold){
+     digitalWrite(relayPin4, LOW);   // energizes the relay and lights the LED
+     humidifierOn=true;
+  } else if(humidifierOn==true && h_5>humidityHighThreshold){
+    digitalWrite(relayPin4, HIGH);   // de-energizes the relay and turns off the LED
+     humidifierOn=false;
+  }
+
+    if(exhaustOn==false && fTemp_5>coolingTempHighThreshold){
+     digitalWrite(relayPin1, LOW);   // energizes the relay and lights the LED
+     digitalWrite(relayPin2, LOW);   // energizes the relay and lights the LED
+     exhaustOn=true;
+  } else if(exhaustOn==true && fTemp_5<coolingTempLowThreshold){
+    digitalWrite(relayPin1, HIGH);   // de-energizes the relay and turns off the LED
+    digitalWrite(relayPin2, HIGH);   // de-energizes the relay and turns off the LED
+     exhaustOn=false;
+  }
+}
+
+
 /* THROW ERROR FUNCTION FOR SD CARD*/
 void error(char *str){
   #if INCLUDE_SD
@@ -426,7 +447,8 @@ void error(char *str){
       digitalWrite(redLEDpin, HIGH);
       delay(100);
       digitalWrite(redLEDpin, LOW);
-      delay(LOG_INTERVAL-500);
+      delay(LOG_INTERVAL-500)
+      break
     }
    #endif  
 }
@@ -438,7 +460,7 @@ void configureFONA(){
     Serial.println(F("Couldn't find FONA"));
   }
   Serial.println(F("FONA is OK"));
-  
+  wdt_reset();
   // configure a GPRS APN, username, and password.
   fona.setGPRSNetworkSettings(F(APN), F(USER), F(PASS));
 }
@@ -446,6 +468,7 @@ void configureFONA(){
 void enableGPRS(){
   int i=0;
   while (!fona.enableGPRS(true) && i<10){
+    wdt_reset();
     Serial.println(F("Failed to turn on"));
     fona.enableGPRS(false);
     delay(1500);
@@ -454,9 +477,10 @@ void enableGPRS(){
 }
 
 //void sendData(float fTemp_4, float h_4, float fTemp_5, float h_5, uint16_t vbat){
-void sendData(float Gf, float Gh, float BCf, float BCh, uint16_t vbat){
+void sendData(float BCf, float BCh, float Gf, float Gh, uint16_t vbat){
   enableGPRS();
   // Post data to website
+  wdt_reset();
   Serial.println(F("Posting data..."));
   uint16_t statuscode;
   int16_t length;
@@ -499,6 +523,7 @@ void sendData(float Gf, float Gh, float BCf, float BCh, uint16_t vbat){
   fona.HTTP_POST_end();
   int i=0;
   while (!fona.enableGPRS(false) && i<10){
+    wdt_reset();
     Serial.println(F("Failed to turn off"));
     delay(1500);
     Serial.println(i++);
@@ -517,6 +542,7 @@ void delay_sec(int seconds){
   while (sec>0){
     delay(1000);
     sec--;
+    wdt_reset();
     #if ECHO_TO_SERIAL
       Serial.print(sec);
       Serial.print(" ");
