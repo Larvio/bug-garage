@@ -8,7 +8,7 @@
 //***** DEBUG TOOLS *********
 #define ECHO_TO_SERIAL 1 // echo data to serial port
 #define WAIT_TO_START 0 // Wait for serial input in setup()
-#define INCLUDE_SD 1 // Include SD Card Code in upload
+#define INCLUDE_SD 0 // Include SD Card Code in upload
 
 //***** SENSOR PINS ***********
 #define DHTPIN_4 4     // what digital pin the sensor is connected to (duplicate as necessary)
@@ -150,13 +150,13 @@ void setup() {
     filename[7] = i%10 + '0';
     if (! SD.exists(filename)) {
       // only open a new file if it doesn't exist
-      logfile = SD.open(filename, FILE_WRITE); 
-      break;  // leave the loop!
+      logfile = SD.open(filename, FILE_WRITE);
     }
   }
   
   if (! logfile) {
     error("couldnt create file");
+    wdt_reset();
   }
 
   #if ECHO_TO_SERIAL
@@ -434,7 +434,6 @@ void error(char *str){
       Serial.println(str);
     #endif
   
-    while(1){
         // red LED indicates error
       digitalWrite(redLEDpin, HIGH);
       delay(100);
@@ -447,10 +446,9 @@ void error(char *str){
       digitalWrite(redLEDpin, HIGH);
       delay(100);
       digitalWrite(redLEDpin, LOW);
-      delay(LOG_INTERVAL-500)
-      break
-    }
-   #endif  
+      delay(LOG_INTERVAL-500);
+  #endif
+  wdt_reset();
 }
 
 void configureFONA(){
